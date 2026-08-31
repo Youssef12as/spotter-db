@@ -19,8 +19,8 @@
 - [Schema Reference](#schema-reference)
   - [Auth and Identity](#group-1-auth--identity)
   - [User Profile and Body Data](#group-2-user-profile--body-data)
-  - [Nutrition Targets](#group-3-nutrition-targets)
-  - [Goals and Progress](#group-4-goals--progress)
+  - [Goals and Nutrition Targets](#group-3-goals--nutrition-targets)
+  - [Plan Templates](#group-4-plan-templates)
   - [Reference Data](#group-5-reference-data-foods--exercises)
   - [Meal Tracking](#group-6-meal-tracking)
   - [Workout Tracking](#group-7-workout-tracking)
@@ -60,7 +60,7 @@ raw SQL.
 
 ## Entity Relationship Diagram
 
-The full ERD covers 24 tables organized into 10 logical groups.
+The full ERD covers 31 tables organized into 10 logical groups.
 
 <p align="center">
   <img src="docs/erd.svg" alt="Spotter ERD" width="100%" />
@@ -87,8 +87,8 @@ The core account table. Every other table in the system references this one
 directly or indirectly.
 
 **Relationships:**
-- One-to-One with `user_profiles`, `body_profiles`, `coaching_preferences`, `nutrition_targets`.
-- One-to-Many with `auth_sessions`, `goals`, `meal_logs`, `workout_logs`, `daily_summaries`, `ai_conversations`.
+- One-to-One with `user_profiles`, `body_profiles`, `coaching_preferences`.
+- One-to-Many with `auth_sessions`, `goals`, `nutrition_targets`, `user_plans`, `meal_logs`, `workout_logs`, `daily_summaries`, `ai_conversations`.
 
 **Columns:**
 
@@ -171,16 +171,14 @@ Supports token rotation with theft detection.
 ### GROUP 2: User Profile & Body Data
 
 These tables store the user's identity, physical attributes, health conditions,
-dietary preferences, and training baseline. They are split by responsibility:
-each table owns one domain.
+dietary preferences, and training baseline.
 
 ---
 
 #### `user_profiles`
 
 Public display identity. This is the only table that could be shared with
-other users in a future social feature. Private fitness and health data
-must never be added here.
+other users in a future social feature.
 
 **Relationship:** One-to-One with `users` (CASCADE on delete).
 
@@ -220,19 +218,11 @@ Current weight is not stored here; it lives in the latest `progress_entries` row
 - `created_at` — Timestamptz.
 - `updated_at` — Timestamptz.
 
-**Design Notes:**
-
-The `starting_weight_kg` field is intentionally immutable. It preserves the
-user's weight at the beginning of their journey. Current weight is always
-derived from the most recent `progress_entries` row. This avoids data
-duplication and ensures a single source of truth.
-
 ---
 
 #### `health_profiles`
 
-Private health and safety constraints. Uses JSONB for flexible storage of
-conditions that vary widely between users.
+Private health and safety constraints. Uses JSONB for flexible storage.
 
 **Relationship:** One-to-One with `body_profiles` (CASCADE on delete).
 
@@ -247,29 +237,11 @@ conditions that vary widely between users.
 - `created_at` — Timestamptz.
 - `updated_at` — Timestamptz.
 
-**JSONB Structure — `health_conditions` example:**
-
-```json
-[
-  { "code": "DIABETES", "notes": "Type 2", "active": true },
-  { "code": "HYPERTENSION", "notes": "Controlled with medication", "active": true }
-]
-```
-
-**JSONB Structure — `movement_limitations` example:**
-
-```json
-[
-  { "bodyRegion": "RIGHT_KNEE", "trigger": "DEEP_SQUAT", "notes": "Pain below parallel" }
-]
-```
-
 ---
 
 #### `nutrition_profiles`
 
-Dietary preferences, allergies, intolerances, and practical constraints
-like cooking skill and kitchen access.
+Dietary preferences, allergies, intolerances, and practical constraints.
 
 **Relationship:** One-to-One with `body_profiles` (CASCADE on delete).
 
@@ -323,7 +295,6 @@ Training experience, equipment availability, schedule, and recovery baseline.
 #### `coaching_preferences`
 
 Controls how the AI coach communicates with each user.
-Proactive behavior and reminders require explicit user opt-in.
 
 **Relationship:** One-to-One with `users` (CASCADE on delete).
 
@@ -342,42 +313,7 @@ Proactive behavior and reminders require explicit user opt-in.
 
 ---
 
-### GROUP 3: Nutrition Targets
-
----
-
-#### `nutrition_targets`
-
-Stores the user's daily calorie and macronutrient targets. These are
-calculated automatically using the Mifflin-St Jeor equation, but the
-user can override them manually.
-
-**Relationship:** One-to-One with `users` (CASCADE on delete).
-
-**Columns:**
-
-- `user_id` — UUID, primary key and foreign key.
-- `target_calories` — Int. Daily calorie goal.
-- `target_protein` — Decimal(5,2). Grams per day.
-- `target_carbs` — Decimal(5,2). Grams per day.
-- `target_fat` — Decimal(5,2). Grams per day.
-- `custom_targets` — Boolean, default false. When true, auto-recalculation is skipped.
-- `formula_used` — Enum (MIFFLIN_ST_JEOR, HARRIS_BENEDICT, CUSTOM).
-- `created_at` — Timestamptz.
-- `updated_at` — Timestamptz.
-
-**Sample Data:**
-
-| user_id  | target_calories | target_protein | target_carbs | target_fat | custom_targets | formula_used    |
-|----------|-----------------|----------------|--------------|------------|----------------|-----------------|
-| a1b2...  | 2800            | 210.00         | 315.00       | 78.00      | false          | MIFFLIN_ST_JEOR |
-| c3d4...  | 1850            | 130.00         | 210.00       | 55.00      | false          | MIFFLIN_ST_JEOR |
-| e5f6...  | 3500            | 280.00         | 350.00       | 95.00      | true           | CUSTOM          |
-| g7h8...  | 1550            | 100.00         | 180.00       | 45.00      | false          | MIFFLIN_ST_JEOR |
-
----
-
-### GROUP 4: Goals & Progress
+### GROUP 3: Goals & Nutrition Targets
 
 ---
 
@@ -392,11 +328,17 @@ active at any time, enforced at the database level.
 
 - `id` — UUID, primary key.
 - `user_id` — UUID, references `users.id`.
-- `goal_type` — Enum (LOSE_WEIGHT, MAINTAIN_WEIGHT, GAIN_WEIGHT, BUILD_MUSCLE, IMPROVE_FITNESS).
+- `primary_goal_type` — Enum (LOSE_WEIGHT, MAINTAIN_WEIGHT, GAIN_WEIGHT, BUILD_MUSCLE, IMPROVE_FITNESS).
+- `secondary_goal_type` — Enum, optional.
 - `target_weight_kg` — Decimal(6,2), optional.
+- `target_body_fat_percentage` — Decimal(5,2), optional.
 - `target_date` — Date, optional.
+- `desired_pace` — Enum (CONSERVATIVE, MODERATE, AGGRESSIVE), optional.
+- `priority` — Enum (APPEARANCE, HEALTH, PERFORMANCE, STRENGTH, ENDURANCE), optional.
+- `motivation_text` — Text, optional.
 - `status` — Enum (DRAFT, ACTIVE, COMPLETED, CANCELLED), default DRAFT.
 - `is_onboarding_goal` — Boolean, optional.
+- `completed_at` — Timestamptz, optional.
 - `created_at` — Timestamptz.
 - `updated_at` — Timestamptz.
 
@@ -407,6 +349,85 @@ active at any time, enforced at the database level.
 | `user_id`                                   | B-Tree                | Find all goals for a user                 |
 | `(user_id, status)`                         | B-Tree (Composite)    | Filter active/completed goals per user    |
 | `user_id WHERE status = 'ACTIVE'`           | B-Tree (Partial, Unique) | Enforce one active goal per user (Raw SQL) |
+
+---
+
+#### `goal_measurement_targets`
+
+Optional detailed body-measurement targets (e.g., target waist circumference).
+
+**Relationship:** Many-to-One with `goals` (CASCADE on delete).
+
+**Columns:**
+
+- `id` — UUID, primary key.
+- `goal_id` — UUID, references `goals.id`.
+- `measurement_type` — Enum (WAIST, CHEST, HIPS, etc.).
+- `target_value_cm` — Decimal(6,2). All values stored in cm.
+- `created_at` — Timestamptz.
+
+---
+
+#### `goal_performance_targets`
+
+Optional performance targets (e.g., 100kg bench press, 5km run under 25 mins).
+
+**Relationships:**
+- Many-to-One with `goals` (CASCADE on delete).
+- Many-to-One with `exercises` (SET NULL on delete).
+
+**Columns:**
+
+- `id` — UUID, primary key.
+- `goal_id` — UUID, references `goals.id`.
+- `performance_type` — Enum (RUN_DISTANCE, EXERCISE_STRENGTH, REPETITIONS, etc.).
+- `exercise_id` — UUID, optional. Linked to an exercise if applicable.
+- `target_value` — Decimal(8,2).
+- `target_unit` — VarChar(50).
+- `description` — Text, optional.
+- `created_at` — Timestamptz.
+
+---
+
+#### `user_goal_history_context`
+
+Stores context about previous attempts for the active goal.
+
+**Relationship:** One-to-One with `goals` (CASCADE on delete).
+
+**Columns:**
+
+- `id` — UUID, primary key.
+- `goal_id` — UUID, references `goals.id`.
+- `tried_before` — Boolean.
+- `what_worked` — Text, optional.
+- `what_did_not_work` — Text, optional.
+- `created_at` — Timestamptz.
+- `updated_at` — Timestamptz.
+
+---
+
+#### `nutrition_targets`
+
+Stores the user's daily calorie and macronutrient targets linked to a specific goal.
+
+**Relationship:** 
+- Many-to-One with `users` (CASCADE on delete).
+- Many-to-One with `goals` (CASCADE on delete).
+
+**Columns:**
+
+- `id` — UUID, primary key.
+- `user_id` — UUID, references `users.id`.
+- `goal_id` — UUID, references `goals.id`.
+- `target_calories` — Int. Daily calorie goal.
+- `target_protein` — Decimal(5,2). Grams per day.
+- `target_carbs` — Decimal(5,2). Grams per day.
+- `target_fat` — Decimal(5,2). Grams per day.
+- `custom_targets` — Boolean, default false.
+- `formula_used` — Enum (MIFFLIN_ST_JEOR, HARRIS_BENEDICT, CUSTOM).
+- `created_at` — Timestamptz.
+- `updated_at` — Timestamptz.
 
 ---
 
@@ -435,19 +456,11 @@ optionally to a `goal` (context).
 - `is_initial_for_goal` — Boolean, optional.
 - `created_at` — Timestamptz.
 
-**Indexes:**
-
-| Column                            | Type               | Reason                                    |
-|-----------------------------------|--------------------|-------------------------------------------|
-| `(body_profile_id, recorded_at)`  | B-Tree (Composite) | Get latest weight or progress over time   |
-| `goal_id`                         | B-Tree             | Find all entries for a specific goal      |
-
 ---
 
 #### `progress_measurements`
 
 Individual body circumference measurements attached to a progress entry.
-All values are stored in centimeters regardless of the user's display preference.
 
 **Relationship:** Many-to-One with `progress_entries` (CASCADE on delete).
 
@@ -459,12 +472,82 @@ All values are stored in centimeters regardless of the user's display preference
 - `value_cm` — Decimal(6,2).
 - `created_at` — Timestamptz.
 
-**Indexes:**
+---
 
-| Column                                    | Type                  | Reason                                    |
-|-------------------------------------------|-----------------------|-------------------------------------------|
-| `progress_entry_id`                       | B-Tree                | Get all measurements for a check-in       |
-| `(progress_entry_id, measurement_type)`   | B-Tree (Unique)       | One value per measurement type per entry  |
+### GROUP 4: Plan Templates
+
+These tables define static, pre-defined workout and nutrition plans (templates)
+that can be assigned to users, avoiding the high cost and latency of on-the-fly AI generation.
+
+---
+
+#### `plan_templates`
+
+The overarching template definition.
+
+**Columns:**
+- `id` — UUID, primary key.
+- `name` — VarChar(255). (e.g., "Beginner Muscle Building 3-Day").
+- `description` — Text.
+- `goal_type` — Enum.
+- `experience_level` — Enum.
+- `duration_weeks` — SmallInt.
+- `created_at` — Timestamptz.
+- `updated_at` — Timestamptz.
+
+---
+
+#### `plan_template_days`
+
+The days that make up a plan template.
+
+**Relationship:** Many-to-One with `plan_templates` (CASCADE on delete).
+
+**Columns:**
+- `id` — UUID, primary key.
+- `plan_template_id` — UUID, references `plan_templates.id`.
+- `day_number` — SmallInt. (1 to 7).
+- `name` — VarChar(100). (e.g., "Push Day").
+- `notes` — Text.
+
+---
+
+#### `plan_template_exercises`
+
+The actual exercises prescribed on a specific template day.
+
+**Relationships:**
+- Many-to-One with `plan_template_days` (CASCADE on delete).
+- Many-to-One with `exercises`.
+
+**Columns:**
+- `id` — UUID, primary key.
+- `plan_template_day_id` — UUID, references `plan_template_days.id`.
+- `exercise_id` — UUID, references `exercises.id`.
+- `exercise_order` — SmallInt.
+- `target_sets` — SmallInt.
+- `target_reps` — VarChar(50). (e.g., "8-12", "To failure").
+- `rest_seconds` — SmallInt, optional.
+- `notes` — Text, optional.
+
+---
+
+#### `user_plans`
+
+Associates a user with a specific plan template they are currently following.
+
+**Relationships:**
+- Many-to-One with `users` (CASCADE on delete).
+- Many-to-One with `plan_templates`.
+
+**Columns:**
+- `id` — UUID, primary key.
+- `user_id` — UUID, references `users.id`.
+- `plan_template_id` — UUID, references `plan_templates.id`.
+- `start_date` — Date.
+- `status` — Enum (ACTIVE, COMPLETED, ABANDONED).
+- `created_at` — Timestamptz.
+- `updated_at` — Timestamptz.
 
 ---
 
@@ -486,12 +569,12 @@ Populated from the USDA FoodData Central (Foundation Foods) dataset.
 
 - `id` — UUID, primary key.
 - `name` — VarChar(255). The food name used for search.
-- `category` — VarChar(100). Food group (Fruits, Vegetables, Meat, Dairy, etc.).
+- `category` — VarChar(100). Food group.
 - `calories_per_100g` — Decimal(7,2).
 - `protein_per_100g` — Decimal(5,2).
 - `carbs_per_100g` — Decimal(5,2).
 - `fat_per_100g` — Decimal(5,2).
-- `source` — VarChar(50), default 'USDA'. Data origin.
+- `source` — VarChar(50), default 'USDA'.
 - `created_at` — Timestamptz.
 
 **Indexes:**
@@ -501,15 +584,6 @@ Populated from the USDA FoodData Central (Foundation Foods) dataset.
 | `tsvector(name)`         | GIN              | Full-text search ("chicken" finds all types)  |
 | `name` with pg_trgm      | GIN (Trigram)    | Typo-tolerant search ("chiken" finds "chicken") |
 | `category`               | B-Tree           | Filter by food group                         |
-
-**Sample Data:**
-
-| name                         | category   | calories | protein | carbs  | fat   |
-|------------------------------|------------|----------|---------|--------|-------|
-| Chicken breast, raw          | Poultry    | 165.00   | 31.00   | 0.00   | 3.60  |
-| Brown rice, cooked           | Grains     | 123.00   | 2.70    | 25.60  | 1.00  |
-| Egg, whole, raw              | Dairy/Eggs | 143.00   | 12.60   | 0.70   | 9.50  |
-| Banana, raw                  | Fruits     | 89.00    | 1.10    | 22.80  | 0.30  |
 
 ---
 
@@ -524,10 +598,10 @@ the hasaneyldrm/exercises-dataset (1,324 exercises).
 
 - `id` — UUID, primary key.
 - `name` — VarChar(255). The exercise name used for search.
-- `body_part` — VarChar(100). Target body area (Chest, Back, Legs, etc.).
-- `target_muscle` — VarChar(100). Specific muscle (Pectorals, Lats, Quads).
-- `equipment` — VarChar(100). Required equipment (Barbell, Dumbbell, Bodyweight).
-- `gif_url` — VarChar(512), optional. URL to animated demonstration.
+- `body_part` — VarChar(100). Target body area.
+- `target_muscle` — VarChar(100). Specific muscle.
+- `equipment` — VarChar(100). Required equipment.
+- `gif_url` — VarChar(512), optional.
 - `instructions` — JSONB. Array of step-by-step instructions.
 - `source` — VarChar(50), default 'EXTERNAL'.
 - `created_at` — Timestamptz.
@@ -540,12 +614,6 @@ the hasaneyldrm/exercises-dataset (1,324 exercises).
 | `name` with pg_trgm      | GIN (Trigram)    | Typo-tolerant search                            |
 | `body_part`              | B-Tree           | Filter by body part                             |
 | `equipment`              | B-Tree           | Filter by equipment type                        |
-
-**JSONB Structure — `instructions` example:**
-
-```json
-["Lie flat on a bench", "Grip the barbell slightly wider than shoulder width", "Lower the bar to your chest", "Press the bar back up to the starting position"]
-```
 
 ---
 
@@ -580,39 +648,33 @@ food items consumed through the `meal_foods` junction table.
 #### `meal_foods`
 
 Junction table linking meals to food items. Stores snapshot values
-calculated at log time so that historical records remain accurate
-even if food data is later updated.
+calculated at log time so that historical records remain accurate.
+Supports entries from the `foods` catalog, manual user entries, and AI vision estimations.
 
 **Relationships:**
 - Many-to-One with `meal_logs` (CASCADE on delete).
-- Many-to-One with `foods`.
+- Many-to-One with `foods` (SET NULL on delete).
 
 **Columns:**
 
 - `id` — UUID, primary key.
 - `meal_log_id` — UUID, references `meal_logs.id`.
-- `food_id` — UUID, references `foods.id`.
+- `food_id` — UUID, optional. References `foods.id`. Nullable to allow for manual or AI-scanned items.
+- `food_name` — VarChar(255). Used to store the name if `food_id` is null.
 - `quantity_grams` — Decimal(7,2).
 - `calories` — Decimal(7,2). Snapshot value.
 - `protein` — Decimal(5,2). Snapshot value.
 - `carbs` — Decimal(5,2). Snapshot value.
 - `fat` — Decimal(5,2). Snapshot value.
+- `created_at` — Timestamptz.
 
-**Indexes:**
+**Sample Data showing mixed entry types:**
 
-| Column        | Type   | Reason                        |
-|---------------|--------|-------------------------------|
-| `meal_log_id` | B-Tree | Get all foods in a meal       |
-| `food_id`     | B-Tree | Find which meals used a food  |
-
-**Sample Data:**
-
-| meal_log_id | food_id (name)     | quantity_grams | calories | protein | carbs  | fat  |
-|-------------|--------------------|----------------|----------|---------|--------|------|
-| m1...       | Chicken breast     | 200.00         | 330.00   | 62.00   | 0.00   | 7.20 |
-| m1...       | Brown rice         | 150.00         | 184.50   | 4.05    | 38.40  | 1.50 |
-| m2...       | Egg, whole         | 120.00         | 171.60   | 15.12   | 0.84   | 11.40|
-| m2...       | Banana             | 100.00         | 89.00    | 1.10    | 22.80  | 0.30 |
+| food_id | food_name         | quantity_grams | calories | Note |
+|---------|-------------------|----------------|----------|------|
+| abc...  | NULL              | 200.00         | 330.00   | Pulled from catalog |
+| NULL    | "Grilled Chicken" | 150.00         | 245.00   | AI Vision estimate |
+| NULL    | "Koshary"         | 300.00         | 480.00   | Manual entry |
 
 ---
 
@@ -623,17 +685,19 @@ even if food data is later updated.
 #### `workout_logs`
 
 A single workout session. Contains metadata about the entire session.
-Individual exercises and their sets are stored in child tables.
 
-**Relationship:** One-to-Many with `users` (CASCADE on delete).
+**Relationships:** 
+- One-to-Many with `users` (CASCADE on delete).
+- Many-to-One with `user_plans` (SET NULL on delete).
 
 **Columns:**
 
 - `id` — UUID, primary key.
 - `user_id` — UUID, references `users.id`.
+- `user_plan_id` — UUID, optional. Ties this log to an active plan template (if any).
 - `logged_at` — Timestamptz.
 - `duration_minutes` — Int, optional.
-- `calories_burned` — Int, optional. User-reported (from smart watch or gym equipment).
+- `calories_burned` — Int, optional. User-reported.
 - `notes` — Text, optional.
 
 **Indexes:**
@@ -660,12 +724,6 @@ An exercise performed within a workout session. Ordered by `exercise_order`.
 - `exercise_id` — UUID, references `exercises.id`.
 - `exercise_order` — SmallInt. Position in the workout.
 
-**Indexes:**
-
-| Column           | Type   | Reason                              |
-|------------------|--------|-------------------------------------|
-| `workout_log_id` | B-Tree | Get all exercises in a workout      |
-
 ---
 
 #### `workout_sets`
@@ -683,20 +741,6 @@ A single set within an exercise. Tracks weight, repetitions, and completion stat
 - `reps` — Int, optional.
 - `is_completed` — Boolean, default false.
 
-**Indexes:**
-
-| Column                | Type   | Reason                          |
-|-----------------------|--------|---------------------------------|
-| `workout_exercise_id` | B-Tree | Get all sets for an exercise    |
-
-**Sample Data (Bench Press, 3 sets):**
-
-| set_order | weight_kg | reps | is_completed |
-|-----------|-----------|------|--------------|
-| 1         | 60.00     | 12   | true         |
-| 2         | 70.00     | 10   | true         |
-| 3         | 80.00     | 8    | true         |
-
 ---
 
 ### GROUP 8: Daily Summary
@@ -706,8 +750,10 @@ A single set within an exercise. Tracks weight, repetitions, and completion stat
 #### `daily_summaries`
 
 Pre-computed daily nutrition and workout summary. Updated automatically by
-database triggers whenever meals or workouts are logged. This eliminates
-the need for the backend to calculate these values on every request.
+database triggers whenever meals or workouts are logged.
+
+**Design Note (Cache Paradigm):** 
+This table is treated architecturally as a **cache / materialized view**. It is not the source of truth. The true values live in `meal_foods` and `workout_logs`. If the data in this table ever drifts or becomes corrupted due to failed triggers, it can be safely rebuilt from scratch by summing up the raw logs.
 
 **Relationship:** One-to-Many with `users` (CASCADE on delete).
 
@@ -716,7 +762,7 @@ the need for the backend to calculate these values on every request.
 - `id` — UUID, primary key.
 - `user_id` — UUID, references `users.id`.
 - `summary_date` — Date.
-- `target_calories` — Int. Copied from `nutrition_targets`.
+- `target_calories` — Int.
 - `consumed_calories` — Decimal(7,2), default 0.
 - `consumed_protein` — Decimal(5,2), default 0.
 - `consumed_carbs` — Decimal(5,2), default 0.
@@ -726,6 +772,8 @@ the need for the backend to calculate these values on every request.
 - `meal_count` — Int, default 0.
 - `workout_count` — Int, default 0.
 - `workout_completed` — Boolean, default false.
+- `created_at` — Timestamptz.
+- `updated_at` — Timestamptz.
 
 **Indexes:**
 
@@ -733,13 +781,6 @@ the need for the backend to calculate these values on every request.
 |-----------------------------|-----------------------|-------------------------------------|
 | `(user_id, summary_date)`   | B-Tree (Unique)       | One summary per user per day        |
 | `summary_date`              | BRIN                  | Time-series optimization (Raw SQL)  |
-
-**Sample Data:**
-
-| user_id | summary_date | target | consumed | burned | remaining | meals | workouts |
-|---------|-------------|--------|----------|--------|-----------|-------|----------|
-| a1b2... | 2026-08-31  | 2800   | 1840.00  | 350    | 1310.00   | 3     | 1        |
-| c3d4... | 2026-08-31  | 1850   | 1620.00  | 0      | 230.00    | 2     | 0        |
 
 ---
 
@@ -757,23 +798,15 @@ A conversation thread between the user and the AI coach.
 
 - `id` — UUID, primary key.
 - `user_id` — UUID, references `users.id`.
-- `title` — VarChar(255), optional. Can be auto-generated from the first message.
+- `title` — VarChar(255), optional.
 - `created_at` — Timestamptz.
 - `updated_at` — Timestamptz.
-
-**Indexes:**
-
-| Column    | Type   | Reason                            |
-|-----------|--------|-----------------------------------|
-| `user_id` | B-Tree | Get all conversations for a user  |
 
 ---
 
 #### `ai_messages`
 
-Individual messages within a conversation. The `context` field stores a
-JSONB snapshot of user data that was sent to the AI API alongside the
-message, enabling auditing and debugging of AI responses.
+Individual messages within a conversation.
 
 **Relationship:** Many-to-One with `ai_conversations` (CASCADE on delete).
 
@@ -785,26 +818,6 @@ message, enabling auditing and debugging of AI responses.
 - `content` — Text. The message body.
 - `context` — JSONB, optional. User data snapshot sent to the AI.
 - `sent_at` — Timestamptz.
-
-**Indexes:**
-
-| Column                        | Type               | Reason                               |
-|-------------------------------|--------------------|-----------------------------------------|
-| `(conversation_id, sent_at)`  | B-Tree (Composite) | Load messages in chronological order  |
-
-**JSONB Structure — `context` example:**
-
-```json
-{
-  "weight_kg": 79.5,
-  "goal": "LOSE_WEIGHT",
-  "target_calories": 2800,
-  "consumed_today": 1840,
-  "burned_today": 350,
-  "recent_meals": ["Chicken breast + Brown rice", "Banana"],
-  "coaching_style": "BALANCED"
-}
-```
 
 ---
 
@@ -829,20 +842,6 @@ and understanding data history.
 - `new_values` — JSONB, optional. New state (for INSERT and UPDATE).
 - `performed_at` — Timestamptz.
 
-**Indexes:**
-
-| Column                      | Type               | Reason                                  |
-|-----------------------------|--------------------|-----------------------------------------|
-| `(table_name, record_id)`   | B-Tree (Composite) | Find all changes to a specific record   |
-| `performed_at`              | B-Tree             | Filter by date range                    |
-
-**Sample Data:**
-
-| user_id | table_name        | action | old_values              | new_values              | performed_at         |
-|---------|-------------------|--------|-------------------------|-------------------------|----------------------|
-| a1b2... | nutrition_targets | UPDATE | {"target_calories":2650} | {"target_calories":2800} | 2026-08-31 10:15:00 |
-| a1b2... | goals             | UPDATE | {"status":"ACTIVE"}      | {"status":"COMPLETED"}   | 2026-08-31 14:30:00 |
-
 ---
 
 ## Indexing Strategy
@@ -850,38 +849,22 @@ and understanding data history.
 This database uses four types of indexes, each chosen for a specific use case:
 
 ### B-Tree (Default)
-
-The standard PostgreSQL index. Used for equality checks, range queries, and sorting.
-Applied to foreign keys, status columns, and composite lookups.
+Used for equality checks, range queries, and sorting. Applied to foreign keys, status columns, and composite lookups.
 
 ### BRIN (Block Range Index)
-
-Extremely small indexes designed for columns where data is naturally ordered by
-insertion time. Applied to `logged_at` and `summary_date` columns on tracking
-tables. A BRIN index can be 100x smaller than an equivalent B-Tree while providing
-comparable performance for time-range queries.
-
+Extremely small indexes designed for columns where data is naturally ordered by insertion time. A BRIN index can be 100x smaller than an equivalent B-Tree while providing comparable performance for time-range queries.
 **Applied to:** `meal_logs.logged_at`, `workout_logs.logged_at`, `daily_summaries.summary_date`.
 
 ### GIN (Generalized Inverted Index)
-
-Used for full-text search via `tsvector`. Enables natural language queries on
-food and exercise names.
-
+Used for full-text search via `tsvector`. Enables natural language queries on food and exercise names.
 **Applied to:** `foods.name`, `exercises.name`.
 
 ### GIN with pg_trgm (Trigram)
-
-An extension of GIN that enables fuzzy matching and typo tolerance. If a user
-types "chiken" instead of "chicken", the database still finds the correct result.
-
+An extension of GIN that enables fuzzy matching and typo tolerance. If a user types "chiken" instead of "chicken", the database still finds the correct result.
 **Applied to:** `foods.name`, `exercises.name`.
 
 ### Partial Unique Index
-
-A conditional unique constraint that only applies to rows matching a filter.
-Used to enforce the business rule that each user can have at most one active goal.
-
+A conditional unique constraint that only applies to rows matching a filter. Used to enforce the business rule that each user can have at most one active goal.
 **Applied to:** `goals (user_id) WHERE status = 'ACTIVE'`.
 
 ---
@@ -901,9 +884,7 @@ They are maintained as raw SQL migration files in the `sql/` directory.
 
 ### Full-Text Search Setup
 
-The `tsvector` columns and their associated triggers are created via raw SQL
-to keep food and exercise search indexes updated automatically when new data
-is inserted.
+The `tsvector` columns and their associated triggers are created via raw SQL to keep food and exercise search indexes updated automatically when new data is inserted.
 
 ---
 
@@ -917,9 +898,7 @@ is inserted.
 
 Download: https://fdc.nal.usda.gov/download-datasets.html
 
-The raw USDA data is multi-file and relational. A processing script reads the
-CSV files, extracts the relevant columns (name, category, calories, protein,
-carbs, fat per 100g), and inserts them into the `foods` table.
+The raw USDA data is multi-file and relational. A processing script reads the CSV files, extracts the relevant columns, and inserts them into the `foods` table.
 
 ### Exercise Data
 
@@ -929,9 +908,7 @@ carbs, fat per 100g), and inserts them into the `foods` table.
 
 Download: https://github.com/hasaneyldrm/exercises-dataset
 
-The dataset provides a single JSON file with exercise names, body parts,
-target muscles, equipment, GIF URLs, and instructions. A processing script
-parses the JSON and inserts the data into the `exercises` table.
+The dataset provides a single JSON file with exercise names, body parts, target muscles, equipment, GIF URLs, and instructions. A processing script parses the JSON and inserts the data into the `exercises` table.
 
 ---
 
