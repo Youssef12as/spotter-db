@@ -1,0 +1,794 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------
+
+enum UserRole {
+  USER
+  COACH
+  ADMIN
+}
+
+enum OnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum SexForCalculation {
+  MALE
+  FEMALE
+}
+
+enum UnitSystem {
+  METRIC
+  IMPERIAL
+}
+
+enum ActivityLevel {
+  SEDENTARY
+  LIGHTLY_ACTIVE
+  MODERATELY_ACTIVE
+  VERY_ACTIVE
+}
+
+enum GoalType {
+  LOSE_WEIGHT
+  MAINTAIN_WEIGHT
+  GAIN_WEIGHT
+  BUILD_MUSCLE
+  IMPROVE_FITNESS
+}
+
+enum GoalStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum DesiredPace {
+  CONSERVATIVE
+  MODERATE
+  AGGRESSIVE
+}
+
+enum GoalPriority {
+  APPEARANCE
+  HEALTH
+  PERFORMANCE
+  STRENGTH
+  ENDURANCE
+}
+
+enum PerformanceType {
+  RUN_DISTANCE
+  RUN_TIME
+  EXERCISE_STRENGTH
+  REPETITIONS
+  SPORT_PERFORMANCE
+  CUSTOM
+}
+
+enum PlanStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum BodyMeasurementType {
+  WAIST
+  ABDOMEN
+  CHEST
+  HIPS
+  NECK
+  SHOULDERS
+  LEFT_UPPER_ARM
+  RIGHT_UPPER_ARM
+  LEFT_FOREARM
+  RIGHT_FOREARM
+  LEFT_THIGH
+  RIGHT_THIGH
+  LEFT_CALF
+  RIGHT_CALF
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum CoachingStyle {
+  SUPPORTIVE
+  BALANCED
+  DIRECT
+}
+
+enum ExplanationLevel {
+  CONCISE
+  NORMAL
+  DETAILED
+}
+
+enum MotivationStyle {
+  ENCOURAGING
+  ACCOUNTABILITY
+  FACT_BASED
+  MINIMAL
+}
+
+enum CheckinFrequency {
+  DAILY
+  FEW_TIMES_PER_WEEK
+  WEEKLY
+}
+
+enum NutritionPlanStyle {
+  EXACT_MEALS
+  FLEXIBLE_MEALS
+  MACRO_BASED
+  SIMPLE_GUIDANCE
+}
+
+enum CookingSkill {
+  NONE
+  BASIC
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum KitchenAccess {
+  NONE
+  MICROWAVE_ONLY
+  BASIC
+  FULL
+}
+
+enum FoodBudgetLevel {
+  LOW
+  MODERATE
+  FLEXIBLE
+}
+
+enum TrainingExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum TrainingEnvironment {
+  COMMERCIAL_GYM
+  HOME_GYM
+  HOME_MINIMAL
+  OUTDOORS
+  MIXED
+}
+
+enum AuditAction {
+  INSERT
+  UPDATE
+  DELETE
+}
+
+enum FormulaType {
+  MIFFLIN_ST_JEOR
+  HARRIS_BENEDICT
+  CUSTOM
+}
+
+enum FoodType {
+  INGREDIENT
+  DISH
+  USER_CREATED
+}
+
+// ---------------------------------------------------------
+// GROUP 1: AUTH & IDENTITY
+// ---------------------------------------------------------
+
+model User {
+  id                              String            @id @default(uuid()) @db.Uuid
+  email                           String            @unique @db.VarChar(254)
+  username                        String            @unique @db.VarChar(30)
+  password_hash                   String            @db.VarChar(100)
+  language                        String            @default("en") @db.VarChar(10)
+  country                         String?           @db.VarChar(2)
+  role                            UserRole          @default(USER)
+  email_verified                  Boolean           @default(false)
+  verify_token                    String?           @unique @db.VarChar(64)
+  verify_token_expires_at         DateTime?         @db.Timestamptz
+  onboarding_status               OnboardingStatus  @default(NOT_STARTED)
+  onboarding_step                 Int?              @default(1) @db.SmallInt
+  fitness_onboarding_completed_at DateTime?         @db.Timestamptz
+  timezone                        String?           @db.VarChar(64)
+  created_at                      DateTime          @default(now()) @db.Timestamptz
+  updated_at                      DateTime          @updatedAt @db.Timestamptz
+
+  auth_sessions         AuthSession[]
+  user_profile          UserProfile?
+  body_profile          BodyProfile?
+  coaching_preferences  CoachingPreferences?
+  goals                 Goal[]
+  nutrition_targets     NutritionTarget[]
+  user_plans            UserPlan[]
+  meal_logs             MealLog[]
+  workout_logs          WorkoutLog[]
+  daily_summaries       DailySummary[]
+  ai_conversations      AiConversation[]
+  user_created_foods    Food[]
+
+  @@map("users")
+}
+
+model AuthSession {
+  id           String         @id @default(uuid()) @db.Uuid
+  user_id      String         @db.Uuid
+  family_id    String         @unique @default(uuid()) @db.Uuid
+  created_at   DateTime       @default(now()) @db.Timestamptz
+  expires_at   DateTime       @db.Timestamptz
+  last_used_at DateTime?      @db.Timestamptz
+  revoked_at   DateTime?      @db.Timestamptz
+  user_agent   String?        @db.VarChar(512)
+  ip_hash      String?        @db.VarChar(64)
+
+  user           User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  refresh_tokens RefreshToken[]
+
+  @@index([user_id])
+  @@index([expires_at])
+  @@index([revoked_at])
+  @@map("auth_sessions")
+}
+
+model RefreshToken {
+  id                   String    @id @default(uuid()) @db.Uuid
+  session_id           String    @db.Uuid
+  token_hash           String    @unique @db.VarChar(64)
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  expires_at           DateTime  @db.Timestamptz
+  consumed_at          DateTime? @db.Timestamptz
+  revoked_at           DateTime? @db.Timestamptz
+  replaced_by_token_id String?   @unique @db.Uuid
+
+  session             AuthSession    @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  replaced_by_token   RefreshToken?  @relation("TokenReplacement", fields: [replaced_by_token_id], references: [id])
+  replacing_token     RefreshToken?  @relation("TokenReplacement")
+
+  @@index([session_id])
+  @@index([expires_at])
+  @@index([revoked_at])
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------
+// GROUP 2: USER PROFILE & BODY DATA
+// ---------------------------------------------------------
+
+model UserProfile {
+  user_id           String   @id @db.Uuid
+  first_name        String   @db.VarChar(40)
+  last_name         String   @db.VarChar(40)
+  display_name      String?  @db.VarChar(50)
+  bio               String?  @db.VarChar(500)
+  profile_photo_key String?  @db.VarChar(512)
+  created_at        DateTime @default(now()) @db.Timestamptz
+  updated_at        DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model BodyProfile {
+  user_id               String            @id @db.Uuid
+  birth_date            DateTime          @db.Date
+  adult_confirmed_at    DateTime          @db.Timestamptz
+  sex_for_calculation   SexForCalculation
+  preferred_unit_system UnitSystem
+  height_cm             Decimal           @db.Decimal(5, 2)
+  starting_weight_kg    Decimal           @db.Decimal(6, 2)
+  activity_level        ActivityLevel?
+  created_at            DateTime          @default(now()) @db.Timestamptz
+  updated_at            DateTime          @updatedAt @db.Timestamptz
+
+  user               User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  health_profile     HealthProfile?
+  nutrition_profile  NutritionProfile?
+  training_profile   TrainingProfile?
+  progress_entries   ProgressEntry[]
+
+  @@map("body_profiles")
+}
+
+model HealthProfile {
+  body_profile_id                 String   @id @db.Uuid
+  health_conditions               Json?
+  movement_limitations            Json?
+  special_planning_states         Json?
+  requires_professional_clearance Boolean  @default(false)
+  safety_notes                    String?  @db.VarChar(2000)
+  created_at                      DateTime @default(now()) @db.Timestamptz
+  updated_at                      DateTime @updatedAt @db.Timestamptz
+
+  body_profile BodyProfile @relation(fields: [body_profile_id], references: [user_id], onDelete: Cascade)
+
+  @@map("health_profiles")
+}
+
+model NutritionProfile {
+  body_profile_id          String              @id @db.Uuid
+  dietary_preference_codes Json?
+  food_allergies           Json?
+  food_intolerances        Json?
+  food_preferences         Json?
+  meals_per_day            Int?                @db.SmallInt
+  snacks_per_day           Int?                @db.SmallInt
+  plan_style               NutritionPlanStyle?
+  cooking_skill            CookingSkill?
+  max_meal_prep_minutes    Int?                @db.SmallInt
+  kitchen_access           KitchenAccess?
+  food_budget_level        FoodBudgetLevel?
+  created_at               DateTime            @default(now()) @db.Timestamptz
+  updated_at               DateTime            @updatedAt @db.Timestamptz
+
+  body_profile BodyProfile @relation(fields: [body_profile_id], references: [user_id], onDelete: Cascade)
+
+  @@map("nutrition_profiles")
+}
+
+model TrainingProfile {
+  body_profile_id                 String                   @id @db.Uuid
+  overall_experience_level        TrainingExperienceLevel?
+  resistance_training_level       TrainingExperienceLevel?
+  cardio_training_level           TrainingExperienceLevel?
+  currently_training_consistently Boolean?
+  training_days_per_week          Int?                     @db.SmallInt
+  available_days                  Json?
+  preferred_session_minutes       Int?                     @db.SmallInt
+  training_environment            TrainingEnvironment?
+  available_equipment             Json?
+  preferred_training_styles       Json?
+  preferred_cardio_type           String?                  @db.VarChar(100)
+  average_sleep_minutes           Int?                     @db.SmallInt
+  sleep_quality                   Int?                     @db.SmallInt
+  typical_stress_level            Int?                     @db.SmallInt
+  created_at                      DateTime                 @default(now()) @db.Timestamptz
+  updated_at                      DateTime                 @updatedAt @db.Timestamptz
+
+  body_profile BodyProfile @relation(fields: [body_profile_id], references: [user_id], onDelete: Cascade)
+
+  @@map("training_profiles")
+}
+
+model CoachingPreferences {
+  user_id             String            @id @db.Uuid
+  coaching_style      CoachingStyle     @default(BALANCED)
+  explanation_level   ExplanationLevel  @default(NORMAL)
+  motivation_style    MotivationStyle?
+  checkin_frequency   CheckinFrequency?
+  proactive_coaching  Boolean           @default(false)
+  workout_reminders   Boolean           @default(false)
+  nutrition_reminders Boolean           @default(false)
+  created_at          DateTime          @default(now()) @db.Timestamptz
+  updated_at          DateTime          @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("coaching_preferences")
+}
+
+// ---------------------------------------------------------
+// GROUP 3: GOALS & NUTRITION TARGETS
+// ---------------------------------------------------------
+
+model Goal {
+  id                         String        @id @default(uuid()) @db.Uuid
+  user_id                    String        @db.Uuid
+  primary_goal_type          GoalType
+  secondary_goal_type        GoalType?
+  target_weight_kg           Decimal?      @db.Decimal(6, 2)
+  target_body_fat_percentage Decimal?      @db.Decimal(5, 2)
+  target_date                DateTime?     @db.Date
+  desired_pace               DesiredPace?
+  priority                   GoalPriority?
+  motivation_text            String?       @db.Text
+  status                     GoalStatus    @default(DRAFT)
+  is_onboarding_goal         Boolean?
+  completed_at               DateTime?     @db.Timestamptz
+  created_at                 DateTime      @default(now()) @db.Timestamptz
+  updated_at                 DateTime      @updatedAt @db.Timestamptz
+
+  user                    User                       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  measurement_targets     GoalMeasurementTarget[]
+  performance_targets     GoalPerformanceTarget[]
+  history_context         UserGoalHistoryContext?
+  nutrition_targets       NutritionTarget[]
+  progress_entries        ProgressEntry[]
+
+  @@index([user_id])
+  @@index([user_id, status])
+  @@map("goals")
+  // Partial unique index for active goals will be added via raw SQL
+}
+
+model GoalMeasurementTarget {
+  id               String              @id @default(uuid()) @db.Uuid
+  goal_id          String              @db.Uuid
+  measurement_type BodyMeasurementType
+  target_value_cm  Decimal             @db.Decimal(6, 2)
+  created_at       DateTime            @default(now()) @db.Timestamptz
+
+  goal Goal @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+
+  @@map("goal_measurement_targets")
+}
+
+model GoalPerformanceTarget {
+  id               String          @id @default(uuid()) @db.Uuid
+  goal_id          String          @db.Uuid
+  performance_type PerformanceType
+  exercise_id      String?         @db.Uuid
+  target_value     Decimal?        @db.Decimal(8, 2)
+  target_unit      String?         @db.VarChar(50)
+  description      String?         @db.Text
+  created_at       DateTime        @default(now()) @db.Timestamptz
+
+  goal     Goal      @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+  exercise Exercise? @relation(fields: [exercise_id], references: [id], onDelete: SetNull)
+
+  @@map("goal_performance_targets")
+}
+
+model UserGoalHistoryContext {
+  id                String   @id @default(uuid()) @db.Uuid
+  goal_id           String   @unique @db.Uuid
+  tried_before      Boolean
+  what_worked       String?  @db.Text
+  what_did_not_work String?  @db.Text
+  created_at        DateTime @default(now()) @db.Timestamptz
+  updated_at        DateTime @updatedAt @db.Timestamptz
+
+  goal Goal @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+
+  @@map("user_goal_history_context")
+}
+
+model NutritionTarget {
+  id              String      @id @default(uuid()) @db.Uuid
+  user_id         String      @db.Uuid
+  goal_id         String      @db.Uuid
+  target_calories Int
+  target_protein  Decimal     @db.Decimal(5, 2)
+  target_carbs    Decimal     @db.Decimal(5, 2)
+  target_fat      Decimal     @db.Decimal(5, 2)
+  custom_targets  Boolean     @default(false)
+  formula_used    FormulaType @default(MIFFLIN_ST_JEOR)
+  created_at      DateTime    @default(now()) @db.Timestamptz
+  updated_at      DateTime    @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  goal Goal @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+
+  @@index([goal_id])
+  @@map("nutrition_targets")
+}
+
+model ProgressEntry {
+  id                      String   @id @default(uuid()) @db.Uuid
+  body_profile_id         String   @db.Uuid
+  goal_id                 String?  @db.Uuid
+  recorded_at             DateTime @default(now()) @db.Timestamptz
+  weight_kg               Decimal  @db.Decimal(6, 2)
+  body_fat_percentage     Decimal? @db.Decimal(5, 2)
+  skeletal_muscle_mass_kg Decimal? @db.Decimal(6, 2)
+  resting_heart_rate_bpm  Int?     @db.SmallInt
+  notes                   String?  @db.VarChar(1000)
+  is_initial_for_goal     Boolean?
+  created_at              DateTime @default(now()) @db.Timestamptz
+
+  body_profile  BodyProfile             @relation(fields: [body_profile_id], references: [user_id], onDelete: Cascade)
+  goal          Goal?                   @relation(fields: [goal_id], references: [id], onDelete: SetNull)
+  measurements  ProgressMeasurement[]
+
+  @@index([body_profile_id, recorded_at])
+  @@index([goal_id])
+  @@map("progress_entries")
+}
+
+model ProgressMeasurement {
+  id                String              @id @default(uuid()) @db.Uuid
+  progress_entry_id String              @db.Uuid
+  measurement_type  BodyMeasurementType
+  value_cm          Decimal             @db.Decimal(6, 2)
+  created_at        DateTime            @default(now()) @db.Timestamptz
+
+  progress_entry ProgressEntry @relation(fields: [progress_entry_id], references: [id], onDelete: Cascade)
+
+  @@map("progress_measurements")
+}
+
+// ---------------------------------------------------------
+// GROUP 4: PLAN TEMPLATES
+// ---------------------------------------------------------
+
+model PlanTemplate {
+  id               String                  @id @default(uuid()) @db.Uuid
+  name             String                  @db.VarChar(255)
+  description      String?                 @db.Text
+  goal_type        GoalType
+  experience_level TrainingExperienceLevel
+  duration_weeks   Int?                    @db.SmallInt
+  created_at       DateTime                @default(now()) @db.Timestamptz
+  updated_at       DateTime                @updatedAt @db.Timestamptz
+
+  days       PlanTemplateDay[]
+  user_plans UserPlan[]
+
+  @@map("plan_templates")
+}
+
+model PlanTemplateDay {
+  id               String  @id @default(uuid()) @db.Uuid
+  plan_template_id String  @db.Uuid
+  day_number       Int     @db.SmallInt
+  name             String  @db.VarChar(100)
+  notes            String? @db.Text
+
+  plan_template PlanTemplate            @relation(fields: [plan_template_id], references: [id], onDelete: Cascade)
+  exercises     PlanTemplateExercise[]
+
+  @@map("plan_template_days")
+}
+
+model PlanTemplateExercise {
+  id                   String  @id @default(uuid()) @db.Uuid
+  plan_template_day_id String  @db.Uuid
+  exercise_id          String  @db.Uuid
+  exercise_order       Int     @db.SmallInt
+  target_sets          Int     @db.SmallInt
+  target_reps          String  @db.VarChar(50)
+  rest_seconds         Int?    @db.SmallInt
+  notes                String? @db.Text
+
+  plan_template_day PlanTemplateDay @relation(fields: [plan_template_day_id], references: [id], onDelete: Cascade)
+  exercise          Exercise        @relation(fields: [exercise_id], references: [id])
+
+  @@map("plan_template_exercises")
+}
+
+model UserPlan {
+  id               String     @id @default(uuid()) @db.Uuid
+  user_id          String     @db.Uuid
+  plan_template_id String     @db.Uuid
+  start_date       DateTime   @db.Date
+  status           PlanStatus @default(ACTIVE)
+  created_at       DateTime   @default(now()) @db.Timestamptz
+  updated_at       DateTime   @updatedAt @db.Timestamptz
+
+  user          User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  plan_template PlanTemplate  @relation(fields: [plan_template_id], references: [id])
+  workout_logs  WorkoutLog[]
+
+  @@index([user_id])
+  @@map("user_plans")
+}
+
+// ---------------------------------------------------------
+// GROUP 5: REFERENCE DATA
+// ---------------------------------------------------------
+
+model Food {
+  id                String   @id @default(uuid()) @db.Uuid
+  user_id           String?  @db.Uuid
+  food_type         FoodType @default(INGREDIENT)
+  name              String   @db.VarChar(255)
+  category          String   @db.VarChar(100)
+  calories_per_100g Decimal  @db.Decimal(7, 2)
+  protein_per_100g  Decimal  @db.Decimal(5, 2)
+  carbs_per_100g    Decimal  @db.Decimal(5, 2)
+  fat_per_100g      Decimal  @db.Decimal(5, 2)
+  source            String   @default("USDA") @db.VarChar(50)
+  created_at        DateTime @default(now()) @db.Timestamptz
+
+  user       User?      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  meal_foods MealFood[]
+
+  @@index([user_id])
+  @@index([food_type])
+  @@map("foods")
+  // Full-text search and pg_trgm indexes will be created via raw SQL
+}
+
+model Exercise {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(255)
+  body_part    String   @db.VarChar(100)
+  target_muscle String  @db.VarChar(100)
+  equipment    String   @db.VarChar(100)
+  gif_url      String?  @db.VarChar(512)
+  instructions Json
+  source       String   @default("EXTERNAL") @db.VarChar(50)
+  created_at   DateTime @default(now()) @db.Timestamptz
+
+  plan_exercises      PlanTemplateExercise[]
+  workout_exercises   WorkoutExercise[]
+  performance_targets GoalPerformanceTarget[]
+
+  @@map("exercises")
+  // Full-text search and pg_trgm indexes will be created via raw SQL
+}
+
+// ---------------------------------------------------------
+// GROUP 6: MEAL TRACKING
+// ---------------------------------------------------------
+
+model MealLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  user_id   String   @db.Uuid
+  meal_type MealType
+  logged_at DateTime @default(now()) @db.Timestamptz
+  notes     String?  @db.Text
+
+  user       User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  meal_foods MealFood[]
+
+  @@map("meal_logs")
+  // BRIN index on logged_at will be added via raw SQL
+}
+
+model MealFood {
+  id             String   @id @default(uuid()) @db.Uuid
+  meal_log_id    String   @db.Uuid
+  food_id        String?  @db.Uuid
+  food_name      String?  @db.VarChar(255)
+  quantity_grams Decimal  @db.Decimal(7, 2)
+  calories       Decimal  @db.Decimal(7, 2)
+  protein        Decimal  @db.Decimal(5, 2)
+  carbs          Decimal  @db.Decimal(5, 2)
+  fat            Decimal  @db.Decimal(5, 2)
+  created_at     DateTime @default(now()) @db.Timestamptz
+
+  meal_log MealLog @relation(fields: [meal_log_id], references: [id], onDelete: Cascade)
+  food     Food?   @relation(fields: [food_id], references: [id], onDelete: SetNull)
+
+  @@map("meal_foods")
+}
+
+// ---------------------------------------------------------
+// GROUP 7: WORKOUT TRACKING
+// ---------------------------------------------------------
+
+model WorkoutLog {
+  id               String   @id @default(uuid()) @db.Uuid
+  user_id          String   @db.Uuid
+  user_plan_id     String?  @db.Uuid
+  logged_at        DateTime @default(now()) @db.Timestamptz
+  duration_minutes Int?
+  calories_burned  Int?
+  notes            String?  @db.Text
+
+  user              User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user_plan         UserPlan?         @relation(fields: [user_plan_id], references: [id], onDelete: SetNull)
+  workout_exercises WorkoutExercise[]
+
+  @@map("workout_logs")
+  // BRIN index on logged_at will be added via raw SQL
+}
+
+model WorkoutExercise {
+  id             String @id @default(uuid()) @db.Uuid
+  workout_log_id String @db.Uuid
+  exercise_id    String @db.Uuid
+  exercise_order Int    @db.SmallInt
+
+  workout_log  WorkoutLog   @relation(fields: [workout_log_id], references: [id], onDelete: Cascade)
+  exercise     Exercise     @relation(fields: [exercise_id], references: [id])
+  workout_sets WorkoutSet[]
+
+  @@map("workout_exercises")
+}
+
+model WorkoutSet {
+  id                  String  @id @default(uuid()) @db.Uuid
+  workout_exercise_id String  @db.Uuid
+  set_order           Int     @db.SmallInt
+  weight_kg           Decimal? @db.Decimal(6, 2)
+  reps                Int?
+  is_completed        Boolean @default(false)
+
+  workout_exercise WorkoutExercise @relation(fields: [workout_exercise_id], references: [id], onDelete: Cascade)
+
+  @@map("workout_sets")
+}
+
+// ---------------------------------------------------------
+// GROUP 8: DAILY SUMMARY
+// ---------------------------------------------------------
+
+model DailySummary {
+  id                 String   @id @default(uuid()) @db.Uuid
+  user_id            String   @db.Uuid
+  summary_date       DateTime @db.Date
+  target_calories    Int
+  consumed_calories  Decimal  @default(0) @db.Decimal(7, 2)
+  consumed_protein   Decimal  @default(0) @db.Decimal(5, 2)
+  consumed_carbs     Decimal  @default(0) @db.Decimal(5, 2)
+  consumed_fat       Decimal  @default(0) @db.Decimal(5, 2)
+  burned_calories    Int      @default(0)
+  remaining_calories Decimal  @default(0) @db.Decimal(7, 2)
+  meal_count         Int      @default(0)
+  workout_count      Int      @default(0)
+  workout_completed  Boolean  @default(false)
+  created_at         DateTime @default(now()) @db.Timestamptz
+  updated_at         DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, summary_date])
+  @@map("daily_summaries")
+  // BRIN index on summary_date will be added via raw SQL
+}
+
+// ---------------------------------------------------------
+// GROUP 9: AI COACH
+// ---------------------------------------------------------
+
+model AiConversation {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  title      String?  @db.VarChar(255)
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  user     User        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id              String      @id @default(uuid()) @db.Uuid
+  conversation_id String      @db.Uuid
+  role            MessageRole
+  content         String      @db.Text
+  context         Json?
+  sent_at         DateTime    @default(now()) @db.Timestamptz
+
+  conversation AiConversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  @@map("ai_messages")
+}
+
+// ---------------------------------------------------------
+// GROUP 10: AUDIT LOG
+// ---------------------------------------------------------
+
+model AuditLog {
+  id           String      @id @default(uuid()) @db.Uuid
+  user_id      String?     @db.Uuid
+  table_name   String      @db.VarChar(100)
+  record_id    String      @db.Uuid
+  action       AuditAction
+  old_values   Json?
+  new_values   Json?
+  performed_at DateTime    @default(now()) @db.Timestamptz
+
+  @@map("audit_logs")
+}
