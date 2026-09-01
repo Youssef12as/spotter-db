@@ -553,21 +553,28 @@ Associates a user with a specific plan template they are currently following.
 
 ### GROUP 5: Reference Data (Foods & Exercises)
 
-Standalone tables populated from external datasets. These are not tied to any
-user and serve as lookup data for tracking.
+Standalone tables populated from external datasets and user contributions.
+System-level foods (INGREDIENT, DISH) are shared across all users.
+User-created foods are private to each user.
 
 ---
 
 #### `foods`
 
-Nutritional information for food items. All values are per 100 grams.
-Populated from the USDA FoodData Central (Foundation Foods) dataset.
+Unified food catalog supporting three entry types:
+- **INGREDIENT** — Raw items from USDA (e.g., Tomato, Chicken breast). Per 100g.
+- **DISH** — Pre-defined meals with known nutritional values (e.g., Koshary, Molokhia). Per 100g.
+- **USER_CREATED** — Custom foods created by individual users (e.g., "My protein shake"). Private to the user who created them.
 
-**Relationship:** Referenced by `meal_foods`.
+**Relationships:**
+- Referenced by `meal_foods`.
+- Many-to-One with `users` (CASCADE on delete). Only set for USER_CREATED foods.
 
 **Columns:**
 
 - `id` — UUID, primary key.
+- `user_id` — UUID, optional. References `users.id`. NULL for system foods, set for USER_CREATED.
+- `food_type` — Enum (INGREDIENT, DISH, USER_CREATED), default INGREDIENT.
 - `name` — VarChar(255). The food name used for search.
 - `category` — VarChar(100). Food group.
 - `calories_per_100g` — Decimal(7,2).
@@ -577,6 +584,8 @@ Populated from the USDA FoodData Central (Foundation Foods) dataset.
 - `source` — VarChar(50), default 'USDA'.
 - `created_at` — Timestamptz.
 
+**Search Note:** When searching for foods, the backend must query system foods (user_id IS NULL) plus the current user's own foods (user_id = current_user). Other users' custom foods must never appear.
+
 **Indexes:**
 
 | Column/Expression        | Type             | Reason                                       |
@@ -584,6 +593,8 @@ Populated from the USDA FoodData Central (Foundation Foods) dataset.
 | `tsvector(name)`         | GIN              | Full-text search ("chicken" finds all types)  |
 | `name` with pg_trgm      | GIN (Trigram)    | Typo-tolerant search ("chiken" finds "chicken") |
 | `category`               | B-Tree           | Filter by food group                         |
+| `user_id`                | B-Tree           | Filter user-created foods                    |
+| `food_type`              | B-Tree           | Filter by food type                          |
 
 ---
 
