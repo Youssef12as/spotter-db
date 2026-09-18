@@ -6,8 +6,8 @@
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meals_occurred_at_brin
   ON meals USING BRIN (occurred_at);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workout_logs_logged_at_brin
-  ON workout_logs USING BRIN (logged_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workouts_started_at_brin
+  ON workouts USING BRIN (started_at);
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_daily_summaries_summary_date_brin
   ON daily_summaries USING BRIN (summary_date);

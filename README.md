@@ -352,86 +352,7 @@ active at any time, enforced at the database level.
 
 ---
 
-#### `goal_measurement_targets`
-
-Optional detailed body-measurement targets (e.g., target waist circumference).
-
-**Relationship:** Many-to-One with `goals` (CASCADE on delete).
-
-**Columns:**
-
-- `id` — UUID, primary key.
-- `goal_id` — UUID, references `goals.id`.
-- `measurement_type` — Enum (WAIST, CHEST, HIPS, etc.).
-- `target_value_cm` — Decimal(6,2). All values stored in cm.
-- `created_at` — Timestamptz.
-
----
-
-#### `goal_performance_targets`
-
-Optional performance targets (e.g., 100kg bench press, 5km run under 25 mins).
-
-**Relationships:**
-- Many-to-One with `goals` (CASCADE on delete).
-- Many-to-One with `exercises` (SET NULL on delete).
-
-**Columns:**
-
-- `id` — UUID, primary key.
-- `goal_id` — UUID, references `goals.id`.
-- `performance_type` — Enum (RUN_DISTANCE, EXERCISE_STRENGTH, REPETITIONS, etc.).
-- `exercise_id` — UUID, optional. Linked to an exercise if applicable.
-- `target_value` — Decimal(8,2).
-- `target_unit` — VarChar(50).
-- `description` — Text, optional.
-- `created_at` — Timestamptz.
-
----
-
-#### `user_goal_history_context`
-
-Stores context about previous attempts for the active goal.
-
-**Relationship:** One-to-One with `goals` (CASCADE on delete).
-
-**Columns:**
-
-- `id` — UUID, primary key.
-- `goal_id` — UUID, references `goals.id`.
-- `tried_before` — Boolean.
-- `what_worked` — Text, optional.
-- `what_did_not_work` — Text, optional.
-- `created_at` — Timestamptz.
-- `updated_at` — Timestamptz.
-
----
-
-#### `nutrition_targets`
-
-Stores the user's daily calorie and macronutrient targets linked to a specific goal.
-
-**Relationship:** 
-- Many-to-One with `users` (CASCADE on delete).
-- Many-to-One with `goals` (CASCADE on delete).
-
-**Columns:**
-
-- `id` — UUID, primary key.
-- `user_id` — UUID, references `users.id`.
-- `goal_id` — UUID, references `goals.id`.
-- `target_calories` — Int. Daily calorie goal.
-- `target_protein` — Decimal(5,2). Grams per day.
-- `target_carbs` — Decimal(5,2). Grams per day.
-- `target_fat` — Decimal(5,2). Grams per day.
-- `custom_targets` — Boolean, default false.
-- `formula_used` — Enum (MIFFLIN_ST_JEOR, HARRIS_BENEDICT, CUSTOM).
-- `created_at` — Timestamptz.
-- `updated_at` — Timestamptz.
-
----
-
-#### `progress_entries`
+### `progress_entries`
 
 Body snapshots recorded over time. The most recent entry provides the
 user's current weight. Linked to both `body_profiles` (owner) and
@@ -474,82 +395,40 @@ Individual body circumference measurements attached to a progress entry.
 
 ---
 
-### GROUP 4: Plan Templates
+### GROUP 4: Plans & Templates
 
-These tables define static, pre-defined workout and nutrition plans (templates)
-that can be assigned to users, avoiding the high cost and latency of on-the-fly AI generation.
-
----
+This module manages both generic templates (for catalog/AI reference) and personalized user plans.
 
 #### `plan_templates`
-
-The overarching template definition.
-
-**Columns:**
-- `id` — UUID, primary key.
-- `name` — VarChar(255). (e.g., "Beginner Muscle Building 3-Day").
-- `description` — Text.
-- `goal_type` — Enum.
-- `experience_level` — Enum.
-- `duration_weeks` — SmallInt.
-- `created_at` — Timestamptz.
-- `updated_at` — Timestamptz.
-
----
+Generic templates used as reference for AI generation or standard catalog.
+- `id` (UUID): Primary key.
+- `goal_type` (Enum): Goal type (LOSE_WEIGHT, etc).
+- `experience_level` (Enum): Required experience.
 
 #### `plan_template_days`
+Generic days for a template (Day 1, Day 2).
+- `plan_template_id` (UUID): Reference to template.
+- `day_number` (Int): Generic sequence number.
+- `workout_blueprint` (JSONB): High-level movement blueprint.
 
-The days that make up a plan template.
+#### `plans`
+A personalized plan generated for a specific user.
+- `id` (UUID): Primary key.
+- `user_id` (UUID): The user owning the plan.
+- `source_template_id` (UUID): Template used as reference (optional).
+- `status` (Enum): DRAFT, ACTIVE, ENDED.
+- Nutrition targets (calories, protein, carbs, fat).
 
-**Relationship:** Many-to-One with `plan_templates` (CASCADE on delete).
+#### `plan_days`
+Actual day mapped to a specific weekday.
+- `plan_id` (UUID): Reference to plan.
+- `day_of_week` (Enum): MONDAY, TUESDAY, etc.
+- Meal options (JSONB).
 
-**Columns:**
-- `id` — UUID, primary key.
-- `plan_template_id` — UUID, references `plan_templates.id`.
-- `day_number` — SmallInt. (1 to 7).
-- `name` — VarChar(100). (e.g., "Push Day").
-- `notes` — Text.
-
----
-
-#### `plan_template_exercises`
-
-The actual exercises prescribed on a specific template day.
-
-**Relationships:**
-- Many-to-One with `plan_template_days` (CASCADE on delete).
-- Many-to-One with `exercises`.
-
-**Columns:**
-- `id` — UUID, primary key.
-- `plan_template_day_id` — UUID, references `plan_template_days.id`.
-- `exercise_id` — UUID, references `exercises.id`.
-- `exercise_order` — SmallInt.
-- `target_sets` — SmallInt.
-- `target_reps` — VarChar(50). (e.g., "8-12", "To failure").
-- `rest_seconds` — SmallInt, optional.
-- `notes` — Text, optional.
-
----
-
-#### `user_plans`
-
-Associates a user with a specific plan template they are currently following.
-
-**Relationships:**
-- Many-to-One with `users` (CASCADE on delete).
-- Many-to-One with `plan_templates`.
-
-**Columns:**
-- `id` — UUID, primary key.
-- `user_id` — UUID, references `users.id`.
-- `plan_template_id` — UUID, references `plan_templates.id`.
-- `start_date` — Date.
-- `status` — Enum (ACTIVE, COMPLETED, ABANDONED).
-- `created_at` — Timestamptz.
-- `updated_at` — Timestamptz.
-
----
+#### `plan_workouts`
+Prescribed workouts inside a plan day.
+- `plan_day_id` (UUID): Reference to plan day.
+- `exercises` (JSONB): The generated exercises prescription.
 
 ### GROUP 5: Reference Data (Foods & Exercises)
 
@@ -734,23 +613,6 @@ An exercise performed within a workout session. Ordered by `exercise_order`.
 - `workout_log_id` — UUID, references `workout_logs.id`.
 - `exercise_id` — UUID, references `exercises.id`.
 - `exercise_order` — SmallInt. Position in the workout.
-
----
-
-#### `workout_sets`
-
-A single set within an exercise. Tracks weight, repetitions, and completion status.
-
-**Relationship:** Many-to-One with `workout_exercises` (CASCADE on delete).
-
-**Columns:**
-
-- `id` — UUID, primary key.
-- `workout_exercise_id` — UUID, references `workout_exercises.id`.
-- `set_order` — SmallInt. Position in the exercise.
-- `weight_kg` — Decimal(6,2), optional.
-- `reps` — Int, optional.
-- `is_completed` — Boolean, default false.
 
 ---
 
